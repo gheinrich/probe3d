@@ -50,7 +50,7 @@ def build_loader(cfg, split, batch_size, num_gpus=1, **kwargs):
         dataset,
         batch_size,
         num_workers=n_workers,
-        drop_last=False,
+        drop_last=True,
         pin_memory=True,
         shuffle=shuffle,
         sampler=sampler,
