@@ -46,6 +46,11 @@ from evals.utils.losses import DepthLoss
 from evals.utils.metrics import evaluate_depth, match_scale_and_shift
 from evals.utils.optim import cosine_decay_linear_warmup
 
+from PIL import Image
+import numpy as np
+import matplotlib.pyplot as plt
+import cv2
+
 
 def ddp_setup(rank: int, world_size: int, port: int):
     """
@@ -133,15 +138,49 @@ def validate(
 ):
     total_loss = 0.0
     metrics = None
+    batch_count = 0
+
+    unorm = UnNormalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+
+    model.module.debug = True
+    model.module.sample_count = batch_count
+
     with torch.inference_mode():
         pbar = tqdm(loader, desc="Evaluation") if verbose else loader
         for batch in pbar:
             images = batch["image"].cuda()
             target = batch["depth"].cuda()
 
+
             feat = model(images)
             pred = probe(feat).detach()
             pred = interpolate(pred, size=target.shape[-2:], mode="bilinear")
+
+            if batch_count%10 == 0:
+                for bi in range(images.shape[0]):
+                    image = images[bi]
+                    image = unorm(image)
+                    image = image.permute(1, 2, 0).float() * 255
+                    image = Image.fromarray(image.cpu().numpy().astype(np.uint8))
+                    image.save(os.path.join("debug/", f"batch_{batch_count}_image_{bi}.png"))
+
+                    # Normalize the depth map to the range [0, 1]
+                    depth_map = pred[bi].squeeze().cpu().numpy()
+                    depth_min = depth_map.min()
+                    depth_max = depth_map.max()
+                    depth_map_normalized = (depth_map - depth_min) / (depth_max - depth_min)
+
+                    # Apply a colormap (e.g., 'viridis', 'plasma', 'inferno', 'magma', 'cividis')
+                    colormap = plt.get_cmap('coolwarm_r')  # 'coolwarm' for red to blue
+                    depth_map_colored = colormap(depth_map_normalized)
+
+                    # Convert to 8-bit RGB
+                    depth_map_colored = (depth_map_colored[:, :, :3] * 255).astype(np.uint8)
+
+                    # Save the image using OpenCV
+                    cv2.imwrite(os.path.join("debug/", f"batch_{batch_count}_depthmap_{bi}.png"), cv2.cvtColor(depth_map_colored, cv2.COLOR_RGB2BGR))
+
+            batch_count += 1
 
             loss = loss_fn(pred, target)
             total_loss += loss.item()
@@ -167,6 +206,24 @@ def validate(
         metrics[key] = metric_key.mean() if aggregate else metric_key
 
     return total_loss, metrics
+
+
+class UnNormalize(object):
+    def __init__(self, mean, std):
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, tensor):
+        """
+        Args:
+            tensor (Tensor): Tensor image of size (C, H, W) to be normalized.
+        Returns:
+            Tensor: Normalized image.
+        """
+        for t, m, s in zip(tensor, self.mean, self.std):
+            t.mul_(s).add_(m)
+            # The normalize code -> t.sub_(m).div_(s)
+        return tensor
 
 
 def train_model(rank, world_size, cfg):

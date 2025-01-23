@@ -15,7 +15,7 @@ from PIL import Image
 from .utils import center_padding, resize_pos_embed, tokens_to_output
 from .upsamplers import UpsampleFeatSharp, UpsampleTile, UpsampleToHigher
 #from featup.upsamplers import UpsampleFeatSharp, UpsampleTile, UpsampleToHigher
-from .visualize_features import get_pca_map, UnNormalize
+from .visualize_features import get_pca_map
 
 # Register the model config
 open_clip.add_model_config(Path(__file__).parent / "model_configs")
@@ -168,10 +168,8 @@ class CLIP(nn.Module):
         self.debug = False
 
     def forward(self, images):
-
-        print("images feats", images.shape)
+        """Model forward."""
         summaries, features = self.visual_wrapper(images)
-        print("featshape feats", features.shape)
 
         if len(self.multilayers) == 1:
             features = [features]
@@ -187,58 +185,19 @@ class CLIP(nn.Module):
                 patches = tokens_to_output(self.output, patches, summary, out_hw)
             outputs.append(patches)
 
-        # Save visualization of features on RANK 0.
+        # Save visualization of the last features on RANK 0.
         if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             if self.debug and self.sample_count % 10 == 0:
-
-                unorm = UnNormalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
-                image = images[0]
-                print("image", image.shape, image.min(), image.max())
-                image = unorm(image)
-                print("denorm image", image.shape, image.min(), image.max())
-                image = image.permute(1, 2, 0).float() * 255
-                image = Image.fromarray(image.cpu().numpy().astype(np.uint8))
-                image.save(os.path.join("debug/", f"sample_{self.sample_count}.png"))
-
-                patches = outputs[-1][:1]
-                # Convert from CHW to HWC
-                patches = patches.permute(0, 2, 3, 1)
-                pca_map = get_pca_map(patches, (512, 512))
-                image = Image.fromarray((pca_map*255.).astype(np.uint8))
-                image.save(f"debug/pca_map_{self.sample_count}.png")
+                for bi in range(outputs[-1].shape[0]):
+                    patches = outputs[-1][bi]
+                    # Add a batch dimension.
+                    patches = patches.unsqueeze(0)
+                    # Convert from NCHW to NHWC.
+                    patches = patches.permute(0, 2, 3, 1)
+                    pca_map = get_pca_map(patches, (512, 512))
+                    image = Image.fromarray((pca_map*255.).astype(np.uint8))
+                    image.save(f"debug/batch_{self.sample_count}_pca_map_{bi}.png")
 
         self.sample_count += 1
-
-        return outputs[0] if len(outputs) == 1 else outputs
-
-        images = center_padding(images, self.patch_size)
-        img_h, img_w = images.shape[-2:]
-        out_hw = (img_h // self.patch_size, img_w // self.patch_size)
-
-        # clip stuff
-        x = self.visual.conv1(images)
-        x_hw = x.shape[-2:]
-        x = E.rearrange(x, "b c h w -> b (h w) c")
-
-        # concat cls token
-        _cls_embed = E.repeat(self.visual.class_embedding, "c -> b 1 c", b=x.shape[0])
-        x = torch.cat([_cls_embed.to(x.dtype), x], dim=1)
-
-        # add pos embed
-        pos_embed = resize_pos_embed(self.visual.positional_embedding, x_hw)
-        x = self.visual.ln_pre(x + pos_embed.to(x.dtype))
-
-        embeds = []
-        for i, blk in enumerate(self.visual.transformer.resblocks):
-            x = blk(x)
-            if i in self.multilayers:
-                embeds.append(x)
-                if len(embeds) == len(self.multilayers):
-                    break
-
-        outputs = []
-        for i, _x in enumerate(embeds):
-            _x = tokens_to_output(self.output, _x[:, 1:], _x[:, 0], out_hw)
-            outputs.append(_x)
 
         return outputs[0] if len(outputs) == 1 else outputs
