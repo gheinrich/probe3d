@@ -22,12 +22,13 @@ open_clip.add_model_config(Path(__file__).parent / "model_configs")
 
 
 class CLIPWrapper(nn.Module):
-    def __init__(self, visual: nn.Module, patch_size: int, multi_layers: List[int], output: str):
+    def __init__(self, visual: nn.Module, patch_size: int, multi_layers: List[int], output: str, output_norm: bool = True):
         super().__init__()
         self.visual = visual
         self.patch_size = patch_size
         self.multilayers = multi_layers
         self.output = output
+        self.output_norm = output_norm
 
     @torch.no_grad()
     def forward(self, images: torch.Tensor) -> List[torch.Tensor]:
@@ -60,6 +61,9 @@ class CLIPWrapper(nn.Module):
         summaries = []
         outputs = []
         for i, _x in enumerate(embeds):
+            if self.output_norm:
+                _x = self.visual.ln_post(_x)
+
             summary = _x[:, 0]
             features = _x[:, 1:]
             summaries.append(summary)
@@ -138,6 +142,7 @@ class CLIP(nn.Module):
                 downsample_size=self.patch_size,
                 feature_dim=feat_dim,
                 upsampler_checkpoint=featsharp_checkpoint,
+                denormalize=False,
             )
         elif feattile:
             self.visual_wrapper = UpsampleTile(
