@@ -4,7 +4,7 @@ checkpoint: "dfn5b"
 output: dense
 layer: -1
 featsharp: true
-featsharp_checkpoint: /lustre/fsw/portfolios/llmservice/users/mranzinger/output/featup/greg_test/dfn_clip/featsharp-4x/last.pth.tar
-#featsharp_checkpoint: /lustre/fsw/portfolios/llmservice/users/mranzinger/output/featup/greg_test/dfn_clip/featup-4x/last.pth.tar
+# featsharp_checkpoint: /lustre/fsw/portfolios/llmservice/users/mranzinger/output/featup/greg_test/dfn_clip/half-hero-4x_9kiter/last.pth.tar
+featsharp_checkpoint: /lustre/fsw/portfolios/llmservice/users/mranzinger/output/featup/greg_test/dfn_clip/featup-4x/last.pth.tar
 featup_outer_input_size: 1512
 featup_inner_input_size: 378

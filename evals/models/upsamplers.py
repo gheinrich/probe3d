@@ -333,7 +333,7 @@ def upsample_s2_cat(*args, **kwargs):
     return UpsampleS2(*args, **kwargs, concatenate=True)
 
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'libs/FeatUp'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'FeatUp'))
 
 class UpsWrapper(nn.Module):
     def __init__(self, method: nn.Module):
@@ -355,7 +355,7 @@ class UpsWrapper(nn.Module):
 @register_adaptor('featsharp')
 class UpsampleFeatSharp(nn.Module):
     def __init__(self, model: nn.Module, outer_input_size: int, inner_input_size: int, downsample_size: int,
-                 feature_dim: int, upsampler_checkpoint: str, do_upsample: bool = True, **kwargs):
+                 feature_dim: int, upsampler_checkpoint: str, do_upsample: bool = True, denormalize: bool = True, **kwargs):
         super().__init__()
 
         self.inner_input_size = to_2tuple(inner_input_size)
@@ -364,6 +364,7 @@ class UpsampleFeatSharp(nn.Module):
         self.student_patch_size = downsample_size
         self._feature_dim = feature_dim
         self.model = model
+        self.denormalize = denormalize
 
         from featup.builder import load_from_file
 
@@ -385,7 +386,7 @@ class UpsampleFeatSharp(nn.Module):
 
     @torch.no_grad()
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        lr_y, hr_y, summary = self.upsampler(x, denormalize=True, return_summary=True)
+        lr_y, hr_y, summary = self.upsampler(x, denormalize=self.denormalize, return_summary=True)
 
         #hr_y = rearrange(hr_y, 'b c h w -> b (h w) c')
 
